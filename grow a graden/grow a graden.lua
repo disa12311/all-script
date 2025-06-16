@@ -17,7 +17,7 @@
 
 -- Auto Update
 pcall(function()
-    local url = "https://pastebin.com/raw/YOUR_PASTEBIN_ID" -- Thay link chính chủ của bạn
+    local url = "https://raw.githubusercontent.com/disa12311/all-script/refs/heads/main/grow%20a%20graden/grow%20a%20graden.lua"
     local up = game:HttpGet(url)
     if up and up:find("--[[") then
         loadstring(up)()
