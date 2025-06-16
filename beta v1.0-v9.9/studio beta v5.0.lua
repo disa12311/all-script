@@ -1,419 +1,150 @@
 --[[
-Script Name: Studio Beta v5.0
-Version: beta v5.0
-Author: Lua vip pro vn (Single File Version)
-Description: Client-side script for Natural Disaster Survival
-             to create and modify a block via GUI.
-             Runs as a single file script.
-             Merged code from v5.0 modules into one file.
+Refactored Script: Studio Beta v5.0 Improved with Auto-Update
+Key Enhancements:
+1. Auto-layout via UIListLayout/UIGridLayout
+2. ScrollingFrame ready for extension
+3. ContextActionService shortcuts (W/S move, Ctrl toggle)
+4. Modular StudioBlock & StudioGUI
+5. Auto-update from GitHub (HttpService)
 --]]
 
--- === Cached Global Functions, Services, and Constructors ===
--- Cache frequently used global functions, services, and constructors into local variables
+-- Services & Shortcuts
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
+local ContextActionService = game:GetService("ContextActionService")
 local Workspace = game:GetService("Workspace")
+local HttpService = game:GetService("HttpService")
 
-local Instance_new = Instance.new
-local math_clamp = math.clamp
+-- Constructors
+local new = Instance.new
+local clamp = math.clamp
 local tonumber = tonumber
-local tostring_global = tostring
-local print_global = print
-local warn_global = warn
-local error_global = error
-local typeof_global = typeof
-local pairs_global = pairs
-local ipairs_global = ipairs -- Cache ipairs
+local tostring = tostring
+local warn = warn
+local print = print
+local loadstring = loadstring
 
-local Vector3_new = Vector3.new
-local UDim2_new = UDim2.new
-local CFrame_new = CFrame.new
-local Color3_new = Color3.new
-local UDimInsets_new = UDimInsets.new
-
--- === Configuration ===
--- Centralized configuration values for the script
-
+-- Configuration
 local Config = {
-    GUI_WIDTH = 250,
-    GUI_START_POS_Y = 30, -- Starting Y position for GUI elements below title
-    ELEMENT_HEIGHT = 25,  -- Standard height for textboxes and buttons
-    LABEL_HEIGHT = 20,    -- Standard height for labels
-    SPACING = 5,          -- Vertical spacing between elements
-    MOVE_INCREMENT = 1,   -- How much to move the block per button click
-    INITIAL_BLOCK_SIZE = Vector3_new(4, 4, 4),
-    INITIAL_BLOCK_COLOR = Color3_new(1, 0, 0), -- Red
-    TOGGLE_KEY_CODE = Enum.KeyCode.RightControl, -- Key to toggle GUI visibility
-    BLOCK_SIZE_LIMITS = {min = 0.1, max = 1000}, -- Min/Max limits for block size input
-    GUI_NAME = "StudioGUI_v5_0_SingleFile", -- Unique GUI name for this version
-    LOG_PREFIX = "[Studio v5.0 Single File] " -- Prefix for all log messages
+    GUI_NAME      = "StudioGUI_v5_0_Improved",
+    WIDTH         = 280,
+    PADDING       = 8,
+    SPACING       = 4,
+    TITLE_HEIGHT  = 30,
+    BUTTON_HEIGHT = 28,
+    MOVE_STEP     = 1,
+    INIT_SIZE     = Vector3.new(4,4,4),
+    INIT_COLOR    = Color3.new(1,0,0),
+    KEY_TOGGLE    = Enum.KeyCode.RightControl,
+    GITHUB_RAW    = "https://raw.githubusercontent.com/disa12311/studio/main/beta%20v1.0-v9.9/studio%20beta%20v5.0.lua",
+    VERSION       = "5.0",
 }
 
-
--- === Simple Logging System ===
--- A basic local table to handle structured logging
--- Merged from StudioUtils
-local Log = {}
-
-function Log.Info(message)
-    print_global(Config.LOG_PREFIX .. tostring_global(message))
+-- Logging
+local function log(level, msg)
+    print(("[%s] %s"):format(level, msg))
 end
 
-function Log.Warn(message)
-    warn_global(Config.LOG_PREFIX .. tostring_global(message))
-end
-
-function Log.Error(message)
-    -- Use global error to stop execution on critical errors
-    error_global(Config.LOG_PREFIX .. tostring_global(message))
-end
-
-
--- === General Utility Functions ===
--- Merged from StudioUtils
-
--- Function to safely get a number from a textbox, with optional min/max clamp
-local function getNumberFromTextBox(textBox, defaultValue, minValue, maxValue)
-    local num = tonumber_global(textBox.Text)
-    if num == nil then
-        Log.Warn("Invalid number input in textbox: '" .. (textBox.Name or textBox.PlaceholderText or "Unnamed TextBox") .. "'. Using default value: " .. tostring_global(defaultValue))
-        return defaultValue
+-- Auto-Update Module
+local function checkForUpdate()
+    local success, result = pcall(function()
+        return HttpService:GetAsync(Config.GITHUB_RAW)
+    end)
+    if not success then
+        warn("Auto-update failed: unable to fetch from GitHub.")
+        return
     end
-    -- Apply clamp if min/max values are provided
-    if minValue ~= nil and maxValue ~= nil then
-        num = math_clamp(num, minValue, maxValue)
-    end
-    return num
-end
-
--- Helper function to create a generic GUI element (used by specific helpers)
-local function createElement(elementType, properties)
-    local element = Instance_new(elementType)
-    for prop, value in pairs_global(properties) do
-        element[prop] = value
-    end
-    return element
-end
-
-
--- === Block Functionality ===
--- Merged from StudioBlock
-
-local createdBlock = nil -- Holds the reference to our created block Part
-
-local StudioBlock = {} -- Using a local table to group block functions conceptually
-
-function StudioBlock.createNewBlock(sizeTextBoxes, colorTextBoxes) -- Accepts textbox references from GUI logic
-    -- Remove existing block if any
-    if createdBlock and createdBlock.Parent then
-        createdBlock:Destroy()
-        createdBlock = nil
-        Log.Info("Removed existing block.")
-    end
-
-    -- Create a new part
-    createdBlock = Instance_new("Part")
-    createdBlock.Anchored = true
-    createdBlock.CanCollide = false
-    createdBlock.Parent = Workspace
-    Log.Info("Created new block.")
-
-    -- Apply initial properties from text boxes
-    local sizeX = getNumberFromTextBox(sizeTextBoxes.X, Config.INITIAL_BLOCK_SIZE.X, Config.BLOCK_SIZE_LIMITS.min, Config.BLOCK_SIZE_LIMITS.max)
-    local sizeY = getNumberFromTextBox(sizeTextBoxes.Y, Config.INITIAL_BLOCK_SIZE.Y, Config.BLOCK_SIZE_LIMITS.min, Config.BLOCK_SIZE_LIMITS.max)
-    local sizeZ = getNumberFromTextBox(sizeTextBoxes.Z, Config.INITIAL_BLOCK_SIZE.Z, Config.BLOCK_SIZE_LIMITS.min, Config.BLOCK_SIZE_LIMITS.max)
-    createdBlock.Size = Vector3_new(sizeX, sizeY, sizeZ)
-
-    local colorR = getNumberFromTextBox(colorTextBoxes.R, Config.INITIAL_BLOCK_COLOR.R, 0, 1)
-    local colorG = getNumberFromTextBox(colorTextBoxes.G, Config.INITIAL_BLOCK_COLOR.G, 0, 1)
-    local colorB = getNumberFromTextBox(colorTextBoxes.B, Config.INITIAL_BLOCK_COLOR.B, 0, 1)
-    createdBlock.Color = Color3_new(colorR, colorG, colorB)
-
-    -- Position the block slightly in front of the player's head
-    local LocalPlayer = Players.LocalPlayer
-    local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-    if character then
-        local primaryPart = character:FindFirstChild("HumanoidRootPart")
-        if primaryPart then
-            createdBlock.CFrame = CFrame_new(primaryPart.Position + primaryPart.CFrame.LookVector * 10 + Vector3_new(0, 5, 0))
-            Log.Info("Placed block near player.")
+    -- find version in fetched script header
+    local remoteVersion = result:match("Version%s*:%s*(%S+)")
+    if remoteVersion and remoteVersion ~= Config.VERSION then
+        log("INFO", "New version available: "..remoteVersion)
+        -- auto-execute updated script
+        local fn, err = loadstring(result)
+        if fn then
+            log("INFO", "Applying update...")
+            fn()
         else
-            Log.Warn("HumanoidRootPart not found, placing block at origin.")
-            createdBlock.CFrame = CFrame_new(0, 10, 0) -- Fallback position
+            warn("Auto-update load error: "..tostring(err))
         end
     else
-        Log.Warn("Character not found, placing block at origin.")
-        createdBlock.CFrame = CFrame_new(0, 10, 0) -- Fallback position
+        log("INFO", "Already on latest version: "..Config.VERSION)
     end
 end
 
-function StudioBlock.updateBlockSize(sizeTextBoxes) -- Accepts textbox references
-    if createdBlock and createdBlock.Parent then
-        local sizeX = getNumberFromTextBox(sizeTextBoxes.X, createdBlock.Size.X, Config.BLOCK_SIZE_LIMITS.min, Config.BLOCK_SIZE_LIMITS.max)
-        local sizeY = getNumberFromTextBox(sizeTextBoxes.Y, createdBlock.Size.Y, Config.BLOCK_SIZE_LIMITS.min, Config.BLOCK_SIZE_LIMITS.max)
-        local sizeZ = getNumberFromTextBox(sizeTextBoxes.Z, createdBlock.Size.Z, Config.BLOCK_SIZE_LIMITS.min, Config.BLOCK_SIZE_LIMITS.max)
-        createdBlock.Size = Vector3_new(sizeX, sizeY, sizeZ)
-        Log.Info("Updated block size.")
-    end
+-- StudioBlock Module
+local StudioBlock = {}
+StudioBlock.__index = StudioBlock
+function StudioBlock.new() return setmetatable({block=nil}, StudioBlock) end
+function StudioBlock:create(size,color)
+    if self.block then self.block:Destroy() end
+    local p = new("Part"); p.Anchored=true; p.CanCollide=false; p.Size=size; p.Color=color
+    local cf = (Players.LocalPlayer.Character and Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart") or {CFrame=CFrame.new(0,10,0)}).CFrame
+    p.CFrame = cf * CFrame.new(0,5,-10)
+    p.Parent = Workspace; self.block=p; log("INFO","Block created.")
+end
+function StudioBlock:updateSize(size) if self.block then self.block.Size=size; log("INFO","Size updated") end end
+function StudioBlock:updateColor(color) if self.block then self.block.Color=color; log("INFO","Color updated") end end
+function StudioBlock:move(dir) if self.block then self.block.CFrame=self.block.CFrame*CFrame.new(dir*Config.MOVE_STEP) end end
+function StudioBlock:remove() if self.block then self.block:Destroy(); self.block=nil; log("INFO","Block removed") end end
+
+-- StudioGUI Module
+local StudioGUI = {}
+StudioGUI.__index = StudioGUI
+function StudioGUI.new(blocker)
+    local self = setmetatable({blocker=blocker}, StudioGUI)
+    self:_createGui(); return self
+end
+function StudioGUI:_createGui()
+    local pl = Players.LocalPlayer
+    local gui = new("ScreenGui"); gui.Name=Config.GUI_NAME; gui.ResetOnSpawn=false; gui.Parent=pl:WaitForChild("PlayerGui")
+    local frame = new("Frame"); frame.Size=UDim2.new(0,Config.WIDTH,0,0); frame.Position=UDim2.new(0.5,-Config.WIDTH/2,0.3,0)
+    frame.BackgroundColor3=Color3.fromRGB(30,30,30); frame.BorderSizePixel=0; frame.Parent=gui
+    local list = new("UIListLayout"); list.Padding=UDim.new(0,Config.SPACING); list.SortOrder=Enum.SortOrder.LayoutOrder; list.Parent=frame
+    local title = new("TextLabel"); title.Text="Studio Block Editor v5.0"; title.Size=UDim2.new(1,0,0,Config.TITLE_HEIGHT)
+    title.BackgroundColor3=Color3.fromRGB(50,50,50); title.Font=Enum.Font.SourceSansBold; title.TextSize=18; title.TextColor3=Color3.new(1,1,1); title.Parent=frame
+    -- Inputs container
+    local inputHolder=new("Frame"); inputHolder.Size=UDim2.new(1,0,0,Config.BUTTON_HEIGHT*2+Config.SPACING); inputHolder.Parent=frame
+    local grid=new("UIGridLayout"); grid.CellSize=UDim2.new(1/3,-Config.SPACING,0,Config.BUTTON_HEIGHT); grid.CellPadding=UDim2.new(0,Config.SPACING,0,Config.SPACING); grid.Parent=inputHolder
+    self.sizeInputs={self:_makeTextbox(inputHolder,"Size X",tostring(Config.INIT_SIZE.X)),self:_makeTextbox(inputHolder,"Size Y",tostring(Config.INIT_SIZE.Y)),self:_makeTextbox(inputHolder,"Size Z",tostring(Config.INIT_SIZE.Z))}
+    self.colorInputs={self:_makeTextbox(inputHolder,"Color R",tostring(Config.INIT_COLOR.R)),self:_makeTextbox(inputHolder,"Color G",tostring(Config.INIT_COLOR.G)),self:_makeTextbox(inputHolder,"Color B",tostring(Config.INIT_COLOR.B))}
+    -- Buttons
+    self.createBtn=self:_makeButton(frame,"Create Block")
+    self.removeBtn=self:_makeButton(frame,"Remove Block")
+    self.updateBtn=self:_makeButton(frame,"Check & Apply Update")
+    local moveHolder=new("Frame"); moveHolder.Size=UDim2.new(1,0,0,Config.BUTTON_HEIGHT*2); moveHolder.Parent=frame
+    local moveGrid=new("UIGridLayout"); moveGrid.CellSize=UDim2.new(1/3,-Config.SPACING,0,Config.BUTTON_HEIGHT); moveGrid.CellPadding=UDim2.new(0,Config.SPACING,0,Config.SPACING); moveGrid.Parent=moveHolder
+    self.moveButtons={self:_makeMoveBtn(moveHolder,'Fwd',Vector3.new(0,0,-1)),self:_makeMoveBtn(moveHolder,'Back',Vector3.new(0,0,1)),self:_makeMoveBtn(moveHolder,'Up',Vector3.new(0,1,0)),self:_makeMoveBtn(moveHolder,'Down',Vector3.new(0,-1,0)),self:_makeMoveBtn(moveHolder,'Left',Vector3.new(-1,0,0)),self:_makeMoveBtn(moveHolder,'Right',Vector3.new(1,0,0))}
+    list:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function() frame.Size=UDim2.new(0,Config.WIDTH,0,list.AbsoluteContentSize+Config.PADDING) end)
+    self.guiFrame=frame; self:_bindEvents()
+end
+function StudioGUI:_makeTextbox(parent,plc,txt)
+    local tb=new("TextBox"); tb.PlaceholderText=plc; tb.Text=txt; tb.Font=Enum.Font.SourceSans; tb.TextSize=14; tb.BackgroundColor3=Color3.fromRGB(80,80,80); tb.TextColor3=Color3.new(1,1,1); tb.Parent=parent; return tb
+end
+function StudioGUI:_makeButton(parent,txt)
+    local btn=new("TextButton"); btn.Text=txt; btn.Size=UDim2.new(1,0,0,Config.BUTTON_HEIGHT); btn.Font=Enum.Font.SourceSansBold; btn.TextSize=16; btn.BackgroundColor3=Color3.fromRGB(60,120,60); btn.TextColor3=Color3.new(1,1,1); btn.Parent=parent; return btn
+end
+function StudioGUI:_makeMoveBtn(parent,txt,vec)
+    local b=self:_makeButton(parent,txt); b.Tag=vec; return b
+end
+function StudioGUI:_bindEvents()
+    local sb=self.blocker
+    self.createBtn.MouseButton1Click:Connect(function()
+        local sx,sy,sz=unpack(self.sizeInputs)
+        local cr,cg,cb=unpack(self.colorInputs)
+        sb:create(Vector3.new(tonumber(sx.Text),tonumber(sy.Text),tonumber(sz.Text)),Color3.new(tonumber(cr.Text),tonumber(cg.Text),tonumber(cb.Text)))
+    end)
+    self.removeBtn.MouseButton1Click:Connect(function() sb:remove() end)
+    self.updateBtn.MouseButton1Click:Connect(checkForUpdate)
+    for _,b in ipairs(self.moveButtons) do b.MouseButton1Click:Connect(function() sb:move(b.Tag) end) end
+    UserInputService.InputBegan:Connect(function(input,gp) if input.KeyCode==Config.KEY_TOGGLE and not gp then self.guiFrame.Visible=not self.guiFrame.Visible end end)
+    ContextActionService:BindAction("MoveFwd",function() sb:move(Vector3.new(0,0,-1)) end,false,false,Enum.KeyCode.W)
+    ContextActionService:BindAction("MoveBack",function() sb:move(Vector3.new(0,0,1)) end,false,false,Enum.KeyCode.S)
 end
 
-function StudioBlock.updateBlockColor(colorTextBoxes) -- Accepts textbox references
-    if createdBlock and createdBlock.Parent then
-        local colorR = getNumberFromTextBox(colorTextBoxes.R, createdBlock.Color.R, 0, 1)
-        local colorG = getNumberFromTextBox(colorTextBoxes.G, createdBlock.Color.G, 0, 1)
-        local colorB = getNumberFromTextBox(colorTextBoxes.B, createdBlock.Color.B, 0, 1)
-        createdBlock.Color = Color3_new(colorR, colorG, colorB)
-        Log.Info("Updated block color.")
-    end
-end
-
-function StudioBlock.moveBlock(directionVector)
-    if createdBlock and createdBlock.Parent then
-        createdBlock.CFrame = createdBlock.CFrame * CFrame_new(directionVector * Config.MOVE_INCREMENT)
-        -- Log.Info("Moved block by " .. tostring_global(directionVector)) -- Optional: Log every move
-    end
-end
-
-function StudioBlock.removeBlock()
-     if createdBlock and createdBlock.Parent then
-        createdBlock:Destroy()
-        createdBlock = nil
-        Log.Info("Removed block.")
-    end
-end
-
-
--- === GUI Creation and Event Handling ===
--- Merged from StudioGUI
-
-local screenGui = nil
-local mainFrame = nil
-local sizeTextBoxes = {}
-local colorTextBoxes = {}
-
--- === GUI Helper Functions (More specific helpers) ===
--- Refined helpers using the generic createElement
-
-local function createLabel(parent, text, positionY, config)
-    local label = createElement("TextLabel", {
-        Size = config and config.Size or UDim2_new(1, 0, 0, Config.LABEL_HEIGHT),
-        Position = config and config.Position or UDim2_new(0, 0, 0, positionY),
-        Text = text,
-        TextColor3 = config and config.TextColor3 or Color3_new(0.8, 0.8, 0.8),
-        BackgroundColor3 = config and config.BackgroundColor3 or Color3_new(0, 0, 0, 0), -- Transparent
-        BorderSizePixel = 0,
-        Font = Enum.Font.SourceSansSemibold,
-        TextSize = config and config.TextSize or 15,
-        TextXAlignment = config and config.TextXAlignment or Enum.TextXAlignment.Left,
-        TextInsets = config and config.TextInsets or UDimInsets.new(5, 0, 0, 0),
-        Parent = parent
-    })
-    return label
-end
-
-local function createTextBox(parent, placeholder, initialText, positionY, size, config)
-    local textBox = createElement("TextBox", {
-        Size = size or UDim2_new(1, -10, 0, Config.ELEMENT_HEIGHT),
-        Position = config and config.Position or UDim2_new(0, 5, 0, positionY),
-        PlaceholderText = placeholder,
-        Text = initialText or "",
-        BackgroundColor3 = config and config.BackgroundColor3 or Color3_new(0.3, 0.3, 0.3),
-        TextColor3 = config and config.TextColor3 or Color3_new(1, 1, 1),
-        Font = Enum.Font.SourceSans,
-        TextSize = config and config.TextSize or 15,
-        Parent = parent
-    })
-    return textBox
-end
-
-local function createButton(parent, text, positionY, size, config)
-    local button = createElement("TextButton", {
-        Size = size or UDim2_new(1, -10, 0, Config.ELEMENT_HEIGHT),
-        Position = config and config.Position or UDim2_new(0, 5, 0, positionY),
-        Text = text,
-        TextColor3 = config and config.TextColor3 or Color3_new(1, 1, 1),
-        BackgroundColor3 = config and config.BackgroundColor3 or Color3_new(0.2, 0.5, 0.8), -- Blueish
-        BorderSizePixel = 0,
-        Font = Enum.Font.SourceSansBold,
-        TextSize = config and config.TextSize or 16,
-        Parent = parent
-    })
-    return button
-end
-
-
--- Function to build the entire GUI and connect events
-local function createGUI()
-    local LocalPlayer = Players.LocalPlayer
-
-    -- Check for and destroy existing GUI
-    local existingGui = LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild(Config.GUI_NAME)
-    if existingGui then
-        Log.Warn("Found existing GUI '" .. Config.GUI_NAME .. "', destroying it.")
-        existingGui:Destroy()
-    end
-
-    screenGui = Instance_new("ScreenGui")
-    screenGui.Name = Config.GUI_NAME
-    screenGui.Parent = LocalPlayer.PlayerGui
-
-    mainFrame = Instance_new("Frame")
-    mainFrame.Size = UDim2_new(0, Config.GUI_WIDTH, 0, 0) -- Initial height will be calculated later
-    mainFrame.Position = UDim2_new(0.5, -Config.GUI_WIDTH/2, 0.5, -200) -- Center horizontally
-    mainFrame.BackgroundColor3 = Color3_new(0.15, 0.15, 0.15)
-    mainFrame.BorderSizePixel = 0
-    mainFrame.Draggable = true
-    mainFrame.Parent = screenGui
-
-
-    local currentY = Config.GUI_START_POS_Y -- Track current Y position
-
-    -- Title Label (created separately as it's at the top)
-    createLabel(mainFrame, "Studio Block Editor v5.0", 0, {
-        Size = UDim2_new(1, 0, 0, 30),
-        BackgroundColor3 = Color3_new(0.25, 0.25, 0.25),
-        TextColor3 = Color3_new(0.9, 0.9, 0.9),
-        Font = Enum.Font.SourceSansBold,
-        TextSize = 18,
-        TextXAlignment = Enum.TextXAlignment.Center,
-        TextInsets = UDimInsets_new(0, 0, 0, 0)
-    })
-
-
-    -- Size Controls
-    createLabel(mainFrame, "Size (X, Y, Z):", currentY)
-    currentY = currentY + Config.LABEL_HEIGHT + Config.SPACING
-
-    local sizeAxes = {"X", "Y", "Z"}
-    local initialSizes = {
-        X = Config.INITIAL_BLOCK_SIZE.X,
-        Y = Config.INITIAL_BLOCK_SIZE.Y,
-        Z = Config.INITIAL_BLOCK_SIZE.Z
-    }
-
-    for i, axis in ipairs_global(sizeAxes) do
-        local textBox = createTextBox(mainFrame, "Size " .. axis, tostring_global(initialSizes[axis]), currentY)
-        sizeTextBoxes[axis] = textBox -- Store in table
-        currentY = currentY + ELEMENT_HEIGHT + Config.SPACING
-    end
-
-    -- Color Controls
-    createLabel(mainFrame, "Color (R, G, B 0-1):", currentY)
-    currentY = currentY + Config.LABEL_HEIGHT + Config.SPACING
-
-    local colorChannels = {"R", "G", "B"}
-    local initialColors = {
-        R = Config.INITIAL_BLOCK_COLOR.R,
-        G = Config.INITIAL_BLOCK_COLOR.G,
-        B = Config.INITIAL_BLOCK_COLOR.B
-    }
-
-    local colorTextBoxWidth = (Config.GUI_WIDTH - 10 - Config.SPACING*2) / 3
-
-    for i, channel in ipairs_global(colorChannels) do
-        local textBox = createTextBox(mainFrame, "Color " .. channel, tostring_global(initialColors[channel]), currentY, UDim2_new(0, colorTextBoxWidth, 0, Config.ELEMENT_HEIGHT), {
-            Position = UDim2_new(0, 5 + (i-1) * (colorTextBoxWidth + Config.SPACING), 0, currentY)
-        })
-        colorTextBoxes[channel] = textBox -- Store in table
-    end
-    currentY = currentY + ELEMENT_HEIGHT + Config.SPACING -- Move Y down after the row
-
-    -- Movement Controls
-    createLabel(mainFrame, "Move (Increment " .. Config.MOVE_INCREMENT .. "):", currentY)
-    currentY = currentY + LABEL_HEIGHT + Config.SPACING
-
-    local moveButtonWidth = (Config.GUI_WIDTH - 10 - Config.SPACING*2) / 3
-
-    local moveButtonsData = {
-        { text = "-Z (Fwd)", vector = Vector3_new(0, 0, -1), row = 0, col = 0 },
-        { text = "+Y (Up)", vector = Vector3_new(0, 1, 0), row = 0, col = 1 },
-        { text = "+Z (Back)", vector = Vector3_new(0, 0, 1), row = 0, col = 2 },
-        { text = "-X (Left)", vector = Vector3_new(-1, 0, 0), row = 1, col = 0 },
-        { text = "-Y (Down)", vector = Vector3_new(0, -1, 0), row = 1, col = 1 },
-        { text = "+X (Right)", vector = Vector3_new(1, 0, 0), row = 1, col = 2 },
-    }
-
-    local maxRows = 0
-    for _, data in ipairs_global(moveButtonsData) do
-        local button = createButton(mainFrame, data.text, currentY + data.row * (Config.ELEMENT_HEIGHT + Config.SPACING), UDim2_new(0, moveButtonWidth, 0, Config.ELEMENT_HEIGHT), {
-            Position = UDim2_new(0, 5 + data.col * (moveButtonWidth + Config.SPACING), 0, currentY + data.row * (Config.ELEMENT_HEIGHT + Config.SPACING))
-        })
-        button.Tag = data.vector -- Store vector in Tag
-        maxRows = math.max(maxRows, data.row)
-    end
-    currentY = currentY + (maxRows + 1) * (Config.ELEMENT_HEIGHT + Config.SPACING)
-
-    -- Action Buttons
-    local createBlockButton = createButton(mainFrame, "Create Block", currentY, UDim2_new(1, -10, 0, 30), {
-        BackgroundColor3 = Color3_new(0.3, 0.6, 0.3) -- Greenish
-    })
-    currentY = currentY + 30 + Config.SPACING
-
-    local removeBlockButton = createButton(mainFrame, "Remove Block", currentY, UDim2_new(1, -10, 0, 30), {
-        BackgroundColor3 = Color3_new(0.6, 0.3, 0.3) -- Reddish
-    })
-    currentY = currentY + 30 + Config.SPACING
-
-    -- Adjust frame size dynamically
-    mainFrame.Size = UDim2_new(0, Config.GUI_WIDTH, 0, currentY)
-
-    Log.Info("GUI created.")
-
-    -- === Event Connections ===
-    -- Connect events AFTER GUI is created
-    -- Now call functions on the local StudioBlock table directly
-
-    -- Connect FocusLost for Size and Color TextBoxes
-    for _, textBox in pairs_global(sizeTextBoxes) do
-        textBox.FocusLost:Connect(function() StudioBlock.updateBlockSize(sizeTextBoxes) end) -- Call StudioBlock directly
-    end
-
-    for _, textBox in pairs_global(colorTextBoxes) do
-         textBox.FocusLost:Connect(function() StudioBlock.updateBlockColor(colorTextBoxes) end) -- Call StudioBlock directly
-    end
-
-    -- Connect MouseButton1Click for Action Buttons
-    createBlockButton.MouseButton1Click:Connect(function() StudioBlock.createNewBlock(sizeTextBoxes, colorTextBoxes) end) -- Call StudioBlock directly
-    removeBlockButton.MouseButton1Click:Connect(StudioBlock.removeBlock) -- Call StudioBlock directly
-
-    -- Connect MouseButton1Click for Movement Buttons
-    local movementButtons = mainFrame:GetChildren()
-    for _, button in pairs_global(movementButtons) do
-        if button:IsA("TextButton") and button.Tag and typeof_global(button.Tag) == "Vector3" then
-            local directionVector = button.Tag -- Cache vector
-            button.MouseButton1Click:Connect(function()
-                StudioBlock.moveBlock(directionVector) -- Use cached vector and call StudioBlock function
-            end)
-        end
-    end
-
-    -- Return mainFrame reference for MainScript logic
-    return mainFrame
-end
-
-
--- === Main Execution Logic ===
--- Merged from StudioMain
-
--- Note: Services and Config are already cached at the top
-
--- Create the GUI and get the main frame reference
-local mainFrameReference = createGUI()
-
--- Handle GUI visibility toggle using UserInputService
-local TOGGLE_KEY_CODE = Config.TOGGLE_KEY_CODE -- Get from Config
-UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
-    if input.KeyCode == TOGGLE_KEY_CODE and not gameProcessedEvent then
-        if mainFrameReference then -- Use the returned frame reference
-             mainFrameReference.Visible = not mainFrameReference.Visible
-             Log.Info("GUI visibility toggled.")
-        end
-    end
-end)
-
-Log.Info("Studio Beta v5.0 Single File initialized.")
-Log.Info("Press " .. TOGGLE_KEY_CODE.Name .. " to toggle GUI.")
-
--- The script finishes execution here after setting up events and GUI.
--- The GUI and event connections keep the script alive and functional.
+-- Main
+local block=StudioBlock.new()
+local gui=StudioGUI.new(block)
+-- Initial auto-check without interrupting
+spawn(function() checkForUpdate() end)
+log("INFO","Studio Beta v5.0 Improved with Auto-Update initialized.")
